@@ -1,0 +1,815 @@
+{
+  "metadata": {
+    "generated": "2025-11-27",
+    "source": "Linux kernel io_uring.h (master branch)",
+    "liburing_version": "2.6+",
+    "notes": "Operations sorted by numeric value. min_kernel indicates first stable release with support."
+  },
+  "operations": {
+    "IORING_OP_NOP": {
+      "value": 0,
+      "min_kernel": "5.1",
+      "sqe_fields": [],
+      "flags_supported": [],
+      "description": "No operation - useful for performance testing",
+      "complexity": "trivial",
+      "priority": "low"
+    },
+    "IORING_OP_READV": {
+      "value": 1,
+      "min_kernel": "5.1",
+      "sqe_fields": ["fd", "addr (iovec*)", "len (iovec count)", "off"],
+      "flags_supported": ["IOSQE_FIXED_FILE", "IOSQE_ASYNC", "IOSQE_IO_LINK"],
+      "description": "Vectored read, similar to preadv2(2)",
+      "cqe_result": "bytes read or negative errno",
+      "complexity": "medium",
+      "priority": "critical"
+    },
+    "IORING_OP_WRITEV": {
+      "value": 2,
+      "min_kernel": "5.1",
+      "sqe_fields": ["fd", "addr (iovec*)", "len (iovec count)", "off"],
+      "flags_supported": ["IOSQE_FIXED_FILE", "IOSQE_ASYNC", "IOSQE_IO_LINK"],
+      "description": "Vectored write, similar to pwritev2(2)",
+      "cqe_result": "bytes written or negative errno",
+      "complexity": "medium",
+      "priority": "critical"
+    },
+    "IORING_OP_FSYNC": {
+      "value": 3,
+      "min_kernel": "5.1",
+      "sqe_fields": ["fd", "fsync_flags"],
+      "flags_supported": ["IOSQE_FIXED_FILE", "IOSQE_ASYNC"],
+      "description": "File sync, IORING_FSYNC_DATASYNC for datasync only",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "low",
+      "priority": "high"
+    },
+    "IORING_OP_READ_FIXED": {
+      "value": 4,
+      "min_kernel": "5.1",
+      "sqe_fields": ["fd", "addr", "len", "off", "buf_index"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Read using pre-registered buffer",
+      "cqe_result": "bytes read or negative errno",
+      "complexity": "medium",
+      "priority": "high"
+    },
+    "IORING_OP_WRITE_FIXED": {
+      "value": 5,
+      "min_kernel": "5.1",
+      "sqe_fields": ["fd", "addr", "len", "off", "buf_index"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Write using pre-registered buffer",
+      "cqe_result": "bytes written or negative errno",
+      "complexity": "medium",
+      "priority": "high"
+    },
+    "IORING_OP_POLL_ADD": {
+      "value": 6,
+      "min_kernel": "5.1",
+      "sqe_fields": ["fd", "poll_events", "len (IORING_POLL_ADD_MULTI)"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Poll file descriptor for events. One-shot by default, multishot with IORING_POLL_ADD_MULTI (5.13+)",
+      "cqe_result": "mask of events that occurred",
+      "complexity": "medium",
+      "priority": "high"
+    },
+    "IORING_OP_POLL_REMOVE": {
+      "value": 7,
+      "min_kernel": "5.1",
+      "sqe_fields": ["addr (user_data of poll to remove)"],
+      "flags_supported": [],
+      "description": "Remove or update existing poll request",
+      "cqe_result": "0 on success, -ENOENT if not found, -EALREADY if completing",
+      "complexity": "low",
+      "priority": "medium"
+    },
+    "IORING_OP_SYNC_FILE_RANGE": {
+      "value": 8,
+      "min_kernel": "5.2",
+      "sqe_fields": ["fd", "off", "len", "sync_range_flags"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Sync file range, equivalent to sync_file_range(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "low",
+      "priority": "medium"
+    },
+    "IORING_OP_SENDMSG": {
+      "value": 9,
+      "min_kernel": "5.3",
+      "sqe_fields": ["fd", "addr (msghdr*)", "msg_flags"],
+      "flags_supported": ["IOSQE_FIXED_FILE", "IOSQE_ASYNC"],
+      "ioprio_modifiers": ["IORING_RECVSEND_POLL_FIRST"],
+      "description": "Send message on socket, equivalent to sendmsg(2)",
+      "cqe_result": "bytes sent or negative errno",
+      "complexity": "medium",
+      "priority": "critical"
+    },
+    "IORING_OP_RECVMSG": {
+      "value": 10,
+      "min_kernel": "5.3",
+      "sqe_fields": ["fd", "addr (msghdr*)", "msg_flags"],
+      "flags_supported": ["IOSQE_FIXED_FILE", "IOSQE_ASYNC", "IOSQE_BUFFER_SELECT"],
+      "ioprio_modifiers": ["IORING_RECVSEND_POLL_FIRST"],
+      "description": "Receive message on socket, equivalent to recvmsg(2). Multishot available in 6.0+",
+      "cqe_result": "bytes received or negative errno",
+      "complexity": "medium",
+      "priority": "critical"
+    },
+    "IORING_OP_TIMEOUT": {
+      "value": 11,
+      "min_kernel": "5.4",
+      "sqe_fields": ["addr (__kernel_timespec*)", "len (must be 1)", "off (completion count)", "timeout_flags"],
+      "flags_supported": [],
+      "description": "Register timeout. Completes when timeout expires or completion count reached",
+      "timeout_flags": ["IORING_TIMEOUT_ABS", "IORING_TIMEOUT_BOOTTIME", "IORING_TIMEOUT_REALTIME", "IORING_TIMEOUT_ETIME_SUCCESS", "IORING_TIMEOUT_MULTISHOT"],
+      "cqe_result": "-ETIME on timeout, 0 if count reached, -ECANCELED if canceled",
+      "complexity": "medium",
+      "priority": "high"
+    },
+    "IORING_OP_TIMEOUT_REMOVE": {
+      "value": 12,
+      "min_kernel": "5.5",
+      "sqe_fields": ["addr (user_data of timeout)", "timeout_flags", "addr2 (timespec for update)"],
+      "flags_supported": [],
+      "description": "Remove or update existing timeout. Use IORING_TIMEOUT_UPDATE to update",
+      "cqe_result": "0 on success, -ENOENT if not found, -EBUSY if expiring",
+      "complexity": "low",
+      "priority": "medium"
+    },
+    "IORING_OP_ACCEPT": {
+      "value": 13,
+      "min_kernel": "5.5",
+      "sqe_fields": ["fd", "addr (sockaddr*)", "addr2 (socklen_t*)", "accept_flags", "file_index"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Accept connection, equivalent to accept4(2). Multishot available in 5.19+. Direct file descriptor with file_index",
+      "cqe_result": "new socket fd or negative errno",
+      "complexity": "medium",
+      "priority": "critical"
+    },
+    "IORING_OP_ASYNC_CANCEL": {
+      "value": 14,
+      "min_kernel": "5.5",
+      "sqe_fields": ["addr (user_data to cancel)", "cancel_flags"],
+      "flags_supported": [],
+      "description": "Cancel in-flight request by user_data",
+      "cqe_result": "0 if found, -ENOENT if not found, -EALREADY if canceling",
+      "complexity": "low",
+      "priority": "high"
+    },
+    "IORING_OP_LINK_TIMEOUT": {
+      "value": 15,
+      "min_kernel": "5.5",
+      "sqe_fields": ["addr (__kernel_timespec*)", "len (must be 1)", "timeout_flags"],
+      "flags_supported": ["IOSQE_IO_LINK"],
+      "description": "Must be linked after another request. Cancels linked request on timeout",
+      "cqe_result": "-ETIME if timed out, -ECANCELED if linked request completed first",
+      "complexity": "medium",
+      "priority": "medium"
+    },
+    "IORING_OP_CONNECT": {
+      "value": 16,
+      "min_kernel": "5.5",
+      "sqe_fields": ["fd", "addr (sockaddr*)", "off (addrlen)"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Connect socket, equivalent to connect(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "low",
+      "priority": "critical"
+    },
+    "IORING_OP_FALLOCATE": {
+      "value": 17,
+      "min_kernel": "5.6",
+      "sqe_fields": ["fd", "len (mode)", "off", "addr (len to allocate)"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Preallocate file space, equivalent to fallocate(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "low",
+      "priority": "medium"
+    },
+    "IORING_OP_OPENAT": {
+      "value": 18,
+      "min_kernel": "5.6",
+      "sqe_fields": ["fd (dirfd)", "addr (pathname*)", "open_flags", "len (mode)", "file_index"],
+      "flags_supported": [],
+      "description": "Open file relative to directory fd, equivalent to openat(2). Direct fd with file_index (5.15+)",
+      "cqe_result": "fd or 0 (direct) or negative errno",
+      "complexity": "low",
+      "priority": "high"
+    },
+    "IORING_OP_CLOSE": {
+      "value": 19,
+      "min_kernel": "5.6",
+      "sqe_fields": ["fd", "file_index"],
+      "flags_supported": [],
+      "description": "Close file descriptor. Can close direct fds with file_index (5.15+)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "trivial",
+      "priority": "high"
+    },
+    "IORING_OP_FILES_UPDATE": {
+      "value": 20,
+      "min_kernel": "5.6",
+      "sqe_fields": ["addr (fd array*)", "len (array length)", "off (start index)"],
+      "flags_supported": [],
+      "description": "Update registered file set asynchronously",
+      "cqe_result": "number of fds updated or negative errno",
+      "complexity": "medium",
+      "priority": "medium"
+    },
+    "IORING_OP_STATX": {
+      "value": 21,
+      "min_kernel": "5.6",
+      "sqe_fields": ["fd (dirfd)", "addr (pathname*)", "statx_flags", "len (mask)", "off (statxbuf*)"],
+      "flags_supported": [],
+      "description": "Get file status, equivalent to statx(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "low",
+      "priority": "medium"
+    },
+    "IORING_OP_READ": {
+      "value": 22,
+      "min_kernel": "5.6",
+      "sqe_fields": ["fd", "addr", "len", "off"],
+      "flags_supported": ["IOSQE_FIXED_FILE", "IOSQE_ASYNC", "IOSQE_BUFFER_SELECT"],
+      "description": "Read from file descriptor, equivalent to pread(2). Use off=-1 to use file position",
+      "cqe_result": "bytes read or negative errno",
+      "complexity": "low",
+      "priority": "critical"
+    },
+    "IORING_OP_WRITE": {
+      "value": 23,
+      "min_kernel": "5.6",
+      "sqe_fields": ["fd", "addr", "len", "off"],
+      "flags_supported": ["IOSQE_FIXED_FILE", "IOSQE_ASYNC"],
+      "description": "Write to file descriptor, equivalent to pwrite(2). Use off=-1 to use file position",
+      "cqe_result": "bytes written or negative errno",
+      "complexity": "low",
+      "priority": "critical"
+    },
+    "IORING_OP_FADVISE": {
+      "value": 24,
+      "min_kernel": "5.6",
+      "sqe_fields": ["fd", "off", "len", "fadvise_advice"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "File access pattern hints, equivalent to posix_fadvise(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "trivial",
+      "priority": "low"
+    },
+    "IORING_OP_MADVISE": {
+      "value": 25,
+      "min_kernel": "5.6",
+      "sqe_fields": ["addr", "len", "fadvise_advice"],
+      "flags_supported": [],
+      "description": "Memory access pattern hints, equivalent to madvise(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "trivial",
+      "priority": "low"
+    },
+    "IORING_OP_SEND": {
+      "value": 26,
+      "min_kernel": "5.6",
+      "sqe_fields": ["fd", "addr", "len", "msg_flags"],
+      "flags_supported": ["IOSQE_FIXED_FILE", "IOSQE_ASYNC"],
+      "ioprio_modifiers": ["IORING_RECVSEND_POLL_FIRST"],
+      "description": "Send data on socket, equivalent to send(2)",
+      "cqe_result": "bytes sent or negative errno",
+      "complexity": "low",
+      "priority": "critical"
+    },
+    "IORING_OP_RECV": {
+      "value": 27,
+      "min_kernel": "5.6",
+      "sqe_fields": ["fd", "addr", "len", "msg_flags"],
+      "flags_supported": ["IOSQE_FIXED_FILE", "IOSQE_ASYNC", "IOSQE_BUFFER_SELECT"],
+      "ioprio_modifiers": ["IORING_RECVSEND_POLL_FIRST"],
+      "description": "Receive data from socket, equivalent to recv(2). Multishot in 6.0+",
+      "cqe_result": "bytes received or negative errno",
+      "complexity": "low",
+      "priority": "critical"
+    },
+    "IORING_OP_OPENAT2": {
+      "value": 28,
+      "min_kernel": "5.6",
+      "sqe_fields": ["fd (dirfd)", "addr (pathname*)", "len (open_how size)", "off (open_how*)"],
+      "flags_supported": [],
+      "description": "Open file with extended options, equivalent to openat2(2). Direct fd with file_index (5.15+)",
+      "cqe_result": "fd or 0 (direct) or negative errno",
+      "complexity": "low",
+      "priority": "medium"
+    },
+    "IORING_OP_EPOLL_CTL": {
+      "value": 29,
+      "min_kernel": "5.6",
+      "sqe_fields": ["fd (epoll fd)", "off (target fd)", "len (op)", "addr (epoll_event*)"],
+      "flags_supported": [],
+      "description": "Modify epoll interest list, equivalent to epoll_ctl(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "low",
+      "priority": "low"
+    },
+    "IORING_OP_SPLICE": {
+      "value": 30,
+      "min_kernel": "5.7",
+      "sqe_fields": ["splice_fd_in", "splice_off_in", "fd (out)", "off (out offset)", "len", "splice_flags"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Move data between fds (one must be pipe), equivalent to splice(2)",
+      "cqe_result": "bytes transferred or negative errno",
+      "complexity": "medium",
+      "priority": "medium"
+    },
+    "IORING_OP_PROVIDE_BUFFERS": {
+      "value": 31,
+      "min_kernel": "5.7",
+      "sqe_fields": ["fd (buffer count)", "addr", "len (buffer size)", "buf_group", "off (starting buf_id)"],
+      "flags_supported": [],
+      "description": "Register buffers for kernel buffer selection",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "medium",
+      "priority": "high"
+    },
+    "IORING_OP_REMOVE_BUFFERS": {
+      "value": 32,
+      "min_kernel": "5.7",
+      "sqe_fields": ["fd (buffer count to remove)", "buf_group"],
+      "flags_supported": [],
+      "description": "Remove previously registered buffers",
+      "cqe_result": "number removed or negative errno",
+      "complexity": "low",
+      "priority": "medium"
+    },
+    "IORING_OP_TEE": {
+      "value": 33,
+      "min_kernel": "5.8",
+      "sqe_fields": ["splice_fd_in", "fd (out)", "len", "splice_flags"],
+      "flags_supported": [],
+      "description": "Duplicate pipe data without consuming, equivalent to tee(2)",
+      "cqe_result": "bytes duplicated or negative errno",
+      "complexity": "low",
+      "priority": "low"
+    },
+    "IORING_OP_SHUTDOWN": {
+      "value": 34,
+      "min_kernel": "5.11",
+      "sqe_fields": ["fd", "len (how)"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Shutdown socket, equivalent to shutdown(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "trivial",
+      "priority": "high"
+    },
+    "IORING_OP_RENAMEAT": {
+      "value": 35,
+      "min_kernel": "5.11",
+      "sqe_fields": ["fd (olddirfd)", "addr (oldpath)", "len (newdirfd)", "addr2 (newpath)", "rename_flags"],
+      "flags_supported": [],
+      "description": "Rename file, equivalent to renameat2(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "low",
+      "priority": "medium"
+    },
+    "IORING_OP_UNLINKAT": {
+      "value": 36,
+      "min_kernel": "5.11",
+      "sqe_fields": ["fd (dirfd)", "addr (pathname)", "unlink_flags"],
+      "flags_supported": [],
+      "description": "Delete file/directory, equivalent to unlinkat(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "trivial",
+      "priority": "medium"
+    },
+    "IORING_OP_MKDIRAT": {
+      "value": 37,
+      "min_kernel": "5.15",
+      "sqe_fields": ["fd (dirfd)", "addr (pathname)", "len (mode)"],
+      "flags_supported": [],
+      "description": "Create directory, equivalent to mkdirat(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "trivial",
+      "priority": "low"
+    },
+    "IORING_OP_SYMLINKAT": {
+      "value": 38,
+      "min_kernel": "5.15",
+      "sqe_fields": ["fd (newdirfd)", "addr (target)", "addr2 (linkpath)"],
+      "flags_supported": [],
+      "description": "Create symbolic link, equivalent to symlinkat(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "trivial",
+      "priority": "low"
+    },
+    "IORING_OP_LINKAT": {
+      "value": 39,
+      "min_kernel": "5.15",
+      "sqe_fields": ["fd (olddirfd)", "addr (oldpath)", "len (newdirfd)", "addr2 (newpath)", "hardlink_flags"],
+      "flags_supported": [],
+      "description": "Create hard link, equivalent to linkat(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "trivial",
+      "priority": "low"
+    },
+    "IORING_OP_MSG_RING": {
+      "value": 40,
+      "min_kernel": "5.18",
+      "sqe_fields": ["fd (target ring fd)", "len (data/32-bit)", "off (user_data/64-bit)", "msg_ring_flags"],
+      "flags_supported": [],
+      "description": "Send message to another io_uring instance",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "medium",
+      "priority": "medium"
+    },
+    "IORING_OP_FSETXATTR": {
+      "value": 41,
+      "min_kernel": "5.19",
+      "sqe_fields": ["fd", "addr (name)", "addr2 (value)", "len", "xattr_flags"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Set extended attribute on fd, equivalent to fsetxattr(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "low",
+      "priority": "low"
+    },
+    "IORING_OP_SETXATTR": {
+      "value": 42,
+      "min_kernel": "5.19",
+      "sqe_fields": ["addr (name)", "addr2 (value)", "addr3 (path)", "len", "xattr_flags"],
+      "flags_supported": [],
+      "description": "Set extended attribute by path, equivalent to setxattr(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "low",
+      "priority": "low"
+    },
+    "IORING_OP_FGETXATTR": {
+      "value": 43,
+      "min_kernel": "5.19",
+      "sqe_fields": ["fd", "addr (name)", "addr2 (value)", "len"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Get extended attribute from fd, equivalent to fgetxattr(2)",
+      "cqe_result": "attribute size or negative errno",
+      "complexity": "low",
+      "priority": "low"
+    },
+    "IORING_OP_GETXATTR": {
+      "value": 44,
+      "min_kernel": "5.19",
+      "sqe_fields": ["addr (name)", "addr2 (value)", "addr3 (path)", "len"],
+      "flags_supported": [],
+      "description": "Get extended attribute by path, equivalent to getxattr(2)",
+      "cqe_result": "attribute size or negative errno",
+      "complexity": "low",
+      "priority": "low"
+    },
+    "IORING_OP_SOCKET": {
+      "value": 45,
+      "min_kernel": "5.19",
+      "sqe_fields": ["fd (domain)", "off (type)", "len (protocol)", "file_index"],
+      "flags_supported": [],
+      "description": "Create socket, equivalent to socket(2). Direct fd with file_index",
+      "cqe_result": "fd or 0 (direct) or negative errno",
+      "complexity": "low",
+      "priority": "critical"
+    },
+    "IORING_OP_URING_CMD": {
+      "value": 46,
+      "min_kernel": "5.19",
+      "sqe_fields": ["fd", "cmd_op", "cmd (80 bytes with SQE128)"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Driver-specific async command (like ioctl)",
+      "cqe_result": "driver-specific",
+      "complexity": "high",
+      "priority": "low"
+    },
+    "IORING_OP_SEND_ZC": {
+      "value": 47,
+      "min_kernel": "6.0",
+      "sqe_fields": ["fd", "addr", "len", "msg_flags", "addr2 (dest addr)", "addr_len"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "ioprio_modifiers": ["IORING_RECVSEND_POLL_FIRST", "IORING_RECVSEND_FIXED_BUF"],
+      "description": "Zero-copy send. Two CQEs: completion + notification when buffer can be reused",
+      "cqe_result": "bytes sent, notification has IORING_CQE_F_NOTIF",
+      "complexity": "high",
+      "priority": "high"
+    },
+    "IORING_OP_SENDMSG_ZC": {
+      "value": 48,
+      "min_kernel": "6.1",
+      "sqe_fields": ["fd", "addr (msghdr*)", "msg_flags"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "ioprio_modifiers": ["IORING_RECVSEND_FIXED_BUF"],
+      "description": "Zero-copy sendmsg. Two CQEs like SEND_ZC",
+      "cqe_result": "bytes sent, notification has IORING_CQE_F_NOTIF",
+      "complexity": "high",
+      "priority": "high"
+    },
+    "IORING_OP_WAITID": {
+      "value": 49,
+      "min_kernel": "6.5",
+      "sqe_fields": ["len (idtype)", "fd (pid/id)", "file_index (options)", "addr2 (siginfo_t*)"],
+      "flags_supported": [],
+      "description": "Wait for child process, equivalent to waitid(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "low",
+      "priority": "low"
+    },
+    "IORING_OP_FUTEX_WAIT": {
+      "value": 50,
+      "min_kernel": "6.7",
+      "sqe_fields": ["addr (futex*)", "addr2 (val)", "addr3 (mask)", "fd (flags)"],
+      "flags_supported": [],
+      "description": "Wait on futex, equivalent to futex_wait(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "medium",
+      "priority": "low"
+    },
+    "IORING_OP_FUTEX_WAKE": {
+      "value": 51,
+      "min_kernel": "6.7",
+      "sqe_fields": ["addr (futex*)", "addr2 (nr_wake)", "addr3 (mask)", "fd (flags)"],
+      "flags_supported": [],
+      "description": "Wake futex waiters, equivalent to futex_wake(2)",
+      "cqe_result": "number woken or negative errno",
+      "complexity": "medium",
+      "priority": "low"
+    },
+    "IORING_OP_FUTEX_WAITV": {
+      "value": 52,
+      "min_kernel": "6.7",
+      "sqe_fields": ["addr (futexv*)", "len (count, max 128)"],
+      "flags_supported": [],
+      "description": "Wait on multiple futexes, equivalent to futex_waitv(2)",
+      "cqe_result": "index of woken futex or negative errno",
+      "complexity": "medium",
+      "priority": "low"
+    },
+    "IORING_OP_FIXED_FD_INSTALL": {
+      "value": 53,
+      "min_kernel": "6.8",
+      "sqe_fields": ["fd (fixed file index)", "install_fd_flags"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Install fixed/direct file descriptor into normal file table",
+      "cqe_result": "regular fd or negative errno",
+      "complexity": "low",
+      "priority": "medium"
+    },
+    "IORING_OP_FTRUNCATE": {
+      "value": 54,
+      "min_kernel": "6.9",
+      "sqe_fields": ["fd", "off (length)"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Truncate file to specified length, equivalent to ftruncate(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "trivial",
+      "priority": "medium"
+    },
+    "IORING_OP_BIND": {
+      "value": 55,
+      "min_kernel": "6.11",
+      "sqe_fields": ["fd", "addr (sockaddr*)", "addr2 (addrlen)"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Bind socket to address, equivalent to bind(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "trivial",
+      "priority": "high"
+    },
+    "IORING_OP_LISTEN": {
+      "value": 56,
+      "min_kernel": "6.11",
+      "sqe_fields": ["fd", "len (backlog)"],
+      "flags_supported": ["IOSQE_FIXED_FILE"],
+      "description": "Listen on socket, equivalent to listen(2)",
+      "cqe_result": "0 on success or negative errno",
+      "complexity": "trivial",
+      "priority": "high"
+    },
+    "IORING_OP_READ_MULTISHOT": {
+      "value": 57,
+      "min_kernel": "6.7",
+      "sqe_fields": ["fd", "addr", "len", "off"],
+      "flags_supported": ["IOSQE_FIXED_FILE", "IOSQE_BUFFER_SELECT"],
+      "description": "Multishot read - generates multiple CQEs. Restricted to pollable files",
+      "cqe_result": "bytes read, IORING_CQE_F_MORE indicates more completions coming",
+      "complexity": "medium",
+      "priority": "high"
+    }
+  },
+  "sqe_flags": {
+    "IOSQE_FIXED_FILE": {
+      "value": 1,
+      "min_kernel": "5.1",
+      "description": "fd is index into registered files array"
+    },
+    "IOSQE_IO_DRAIN": {
+      "value": 2,
+      "min_kernel": "5.2",
+      "description": "Issue after all previous SQEs complete"
+    },
+    "IOSQE_IO_LINK": {
+      "value": 4,
+      "min_kernel": "5.3",
+      "description": "Link to next SQE - chain breaks on error"
+    },
+    "IOSQE_IO_HARDLINK": {
+      "value": 8,
+      "min_kernel": "5.5",
+      "description": "Hard link - chain continues despite errors"
+    },
+    "IOSQE_ASYNC": {
+      "value": 16,
+      "min_kernel": "5.6",
+      "description": "Always use async execution path"
+    },
+    "IOSQE_BUFFER_SELECT": {
+      "value": 32,
+      "min_kernel": "5.7",
+      "description": "Select buffer from buf_group"
+    },
+    "IOSQE_CQE_SKIP_SUCCESS": {
+      "value": 64,
+      "min_kernel": "5.17",
+      "description": "Don't generate CQE if request succeeds"
+    }
+  },
+  "cqe_flags": {
+    "IORING_CQE_F_BUFFER": {
+      "value": 1,
+      "description": "Buffer ID in upper 16 bits of flags"
+    },
+    "IORING_CQE_F_MORE": {
+      "value": 2,
+      "description": "More CQEs coming from this request (multishot)"
+    },
+    "IORING_CQE_F_SOCK_NONEMPTY": {
+      "value": 4,
+      "description": "Socket still has data after this receive"
+    },
+    "IORING_CQE_F_NOTIF": {
+      "value": 8,
+      "description": "Notification CQE for zero-copy operations"
+    },
+    "IORING_CQE_F_BUF_MORE": {
+      "value": 16,
+      "min_kernel": "6.12",
+      "description": "Buffer will get more completions (incremental consumption)"
+    }
+  },
+  "setup_flags": {
+    "IORING_SETUP_IOPOLL": {
+      "value": 1,
+      "min_kernel": "5.1",
+      "description": "Use I/O polling for completions (busy wait)"
+    },
+    "IORING_SETUP_SQPOLL": {
+      "value": 2,
+      "min_kernel": "5.1",
+      "description": "Kernel thread polls SQ for submissions"
+    },
+    "IORING_SETUP_SQ_AFF": {
+      "value": 4,
+      "min_kernel": "5.1",
+      "description": "Pin SQPOLL thread to specific CPU"
+    },
+    "IORING_SETUP_CQSIZE": {
+      "value": 8,
+      "min_kernel": "5.5",
+      "description": "App provides CQ size in params"
+    },
+    "IORING_SETUP_CLAMP": {
+      "value": 16,
+      "min_kernel": "5.6",
+      "description": "Clamp SQ/CQ sizes to max supported"
+    },
+    "IORING_SETUP_ATTACH_WQ": {
+      "value": 32,
+      "min_kernel": "5.6",
+      "description": "Share async worker thread pool"
+    },
+    "IORING_SETUP_R_DISABLED": {
+      "value": 64,
+      "min_kernel": "5.10",
+      "description": "Start ring in disabled state"
+    },
+    "IORING_SETUP_SUBMIT_ALL": {
+      "value": 128,
+      "min_kernel": "5.18",
+      "description": "Continue submitting even on error"
+    },
+    "IORING_SETUP_COOP_TASKRUN": {
+      "value": 256,
+      "min_kernel": "5.19",
+      "description": "Cooperative task running"
+    },
+    "IORING_SETUP_TASKRUN_FLAG": {
+      "value": 512,
+      "min_kernel": "5.19",
+      "description": "Set IORING_SQ_TASKRUN flag on pending task work"
+    },
+    "IORING_SETUP_SQE128": {
+      "value": 1024,
+      "min_kernel": "5.19",
+      "description": "SQEs are 128 bytes (for uring_cmd)"
+    },
+    "IORING_SETUP_CQE32": {
+      "value": 2048,
+      "min_kernel": "5.19",
+      "description": "CQEs are 32 bytes"
+    },
+    "IORING_SETUP_SINGLE_ISSUER": {
+      "value": 4096,
+      "min_kernel": "6.0",
+      "description": "Only one task can submit requests"
+    },
+    "IORING_SETUP_DEFER_TASKRUN": {
+      "value": 8192,
+      "min_kernel": "6.1",
+      "description": "Defer task work to io_uring_enter"
+    },
+    "IORING_SETUP_NO_MMAP": {
+      "value": 16384,
+      "min_kernel": "6.5",
+      "description": "App provides ring memory"
+    },
+    "IORING_SETUP_REGISTERED_FD_ONLY": {
+      "value": 32768,
+      "min_kernel": "6.5",
+      "description": "Return registered ring fd"
+    },
+    "IORING_SETUP_NO_SQARRAY": {
+      "value": 65536,
+      "min_kernel": "6.6",
+      "description": "No SQ array indirection"
+    }
+  },
+  "feature_flags": {
+    "IORING_FEAT_SINGLE_MMAP": {
+      "value": 1,
+      "min_kernel": "5.4",
+      "description": "SQ and CQ can share single mmap"
+    },
+    "IORING_FEAT_NODROP": {
+      "value": 2,
+      "min_kernel": "5.5",
+      "description": "CQE overflow handled without drops"
+    },
+    "IORING_FEAT_SUBMIT_STABLE": {
+      "value": 4,
+      "min_kernel": "5.5",
+      "description": "SQE data stable after submit"
+    },
+    "IORING_FEAT_RW_CUR_POS": {
+      "value": 8,
+      "min_kernel": "5.6",
+      "description": "off=-1 uses file position"
+    },
+    "IORING_FEAT_CUR_PERSONALITY": {
+      "value": 16,
+      "min_kernel": "5.6",
+      "description": "Use current task personality"
+    },
+    "IORING_FEAT_FAST_POLL": {
+      "value": 32,
+      "min_kernel": "5.7",
+      "description": "Fast poll supported"
+    },
+    "IORING_FEAT_POLL_32BITS": {
+      "value": 64,
+      "min_kernel": "5.9",
+      "description": "32-bit poll flags (EPOLLEXCLUSIVE)"
+    },
+    "IORING_FEAT_SQPOLL_NONFIXED": {
+      "value": 128,
+      "min_kernel": "5.11",
+      "description": "SQPOLL works with non-fixed files"
+    },
+    "IORING_FEAT_EXT_ARG": {
+      "value": 256,
+      "min_kernel": "5.11",
+      "description": "Extended argument in enter"
+    },
+    "IORING_FEAT_NATIVE_WORKERS": {
+      "value": 512,
+      "min_kernel": "5.12",
+      "description": "Native IO workers (not kernel threads)"
+    },
+    "IORING_FEAT_RSRC_TAGS": {
+      "value": 1024,
+      "min_kernel": "5.13",
+      "description": "Resource tagging"
+    },
+    "IORING_FEAT_CQE_SKIP": {
+      "value": 2048,
+      "min_kernel": "5.17",
+      "description": "IOSQE_CQE_SKIP_SUCCESS supported"
+    },
+    "IORING_FEAT_LINKED_FILE": {
+      "value": 4096,
+      "min_kernel": "5.17",
+      "description": "File slot linking"
+    },
+    "IORING_FEAT_REG_REG_RING": {
+      "value": 8192,
+      "min_kernel": "6.3",
+      "description": "Can register ring fd"
+    }
+  }
+}
