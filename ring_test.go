@@ -7,6 +7,7 @@ import (
 	"os"
 	"syscall"
 	"testing"
+	"time"
 	"unsafe"
 )
 
@@ -1344,4 +1345,457 @@ func TestCloseOperation(t *testing.T) {
 // htons converts a uint16 to network byte order
 func htons(v uint16) uint16 {
 	return (v << 8) | (v >> 8)
+}
+
+func TestConnectWithTimeout(t *testing.T) {
+	skipIfNoIOURing(t)
+
+	ring, err := New(64)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer ring.Close()
+
+	// Create a non-blocking TCP socket
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM|syscall.SOCK_NONBLOCK, 0)
+	if err != nil {
+		t.Fatalf("Socket error = %v", err)
+	}
+	defer syscall.Close(fd)
+
+	// Connect to a non-routable address (RFC 5737 TEST-NET-1)
+	// This will hang until timeout
+	addr := syscall.RawSockaddrInet4{
+		Family: syscall.AF_INET,
+		Port:   htons(12345),
+		Addr:   [4]byte{192, 0, 2, 1}, // 192.0.2.1 - non-routable
+	}
+
+	// Submit connect with a linked timeout
+	err = ring.PrepConnect(fd, unsafe.Pointer(&addr), uint32(unsafe.Sizeof(addr)), 1)
+	if err != nil {
+		t.Fatalf("PrepConnect error = %v", err)
+	}
+	ring.SetSQELink() // Link to the following timeout
+
+	// 100ms timeout
+	ts := &Timespec{Sec: 0, Nsec: 100_000_000}
+	err = ring.PrepLinkTimeout(ts, 0, 2)
+	if err != nil {
+		t.Fatalf("PrepLinkTimeout error = %v", err)
+	}
+
+	start := nanotime()
+	_, err = ring.Submit()
+	if err != nil {
+		t.Fatalf("Submit error = %v", err)
+	}
+
+	// Should get two CQEs: cancelled connect and the timeout
+	seenConnect := false
+	seenTimeout := false
+
+	for i := 0; i < 2; i++ {
+		userData, res, _, err := ring.WaitCQE()
+		if err != nil {
+			t.Fatalf("WaitCQE error = %v", err)
+		}
+		ring.SeenCQE()
+
+		switch userData {
+		case 1: // Connect
+			// Connect should be cancelled with ECANCELED or EINPROGRESS cancelled
+			if res != -int32(syscall.ECANCELED) && res != -int32(syscall.EINTR) {
+				// Some kernels return ETIMEDOUT directly
+				if res != -int32(syscall.ETIMEDOUT) {
+					t.Logf("connect res = %d (errno: %v)", res, syscall.Errno(-res))
+				}
+			}
+			seenConnect = true
+		case 2: // Timeout
+			// Timeout fires, cancelling the connect
+			// res is 0 if it fired, -ECANCELED if connect completed first
+			if res != 0 && res != -int32(syscall.ECANCELED) && res != -int32(syscall.EALREADY) {
+				t.Logf("timeout res = %d (errno: %v)", res, syscall.Errno(-res))
+			}
+			seenTimeout = true
+		}
+	}
+
+	elapsed := nanotime() - start
+
+	if !seenConnect {
+		t.Error("did not see connect completion")
+	}
+	if !seenTimeout {
+		t.Error("did not see timeout completion")
+	}
+
+	// Should complete in roughly 100ms (with some tolerance)
+	if elapsed < 50_000_000 {
+		t.Errorf("elapsed = %dms, expected >= 50ms", elapsed/1_000_000)
+	}
+	if elapsed > 500_000_000 {
+		t.Errorf("elapsed = %dms, expected < 500ms (timeout didn't work?)", elapsed/1_000_000)
+	}
+	t.Logf("Connect with timeout elapsed: %dms", elapsed/1_000_000)
+}
+
+func TestSendZC(t *testing.T) {
+	skipIfNoIOURing(t)
+
+	ring, err := New(64)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer ring.Close()
+
+	// Check if SEND_ZC is supported (6.0+ kernel)
+	probe, err := ring.Probe()
+	if err != nil {
+		t.Fatalf("Probe() error = %v", err)
+	}
+	// IORING_OP_SEND_ZC = 47
+	if !probe.SupportsOp(47) {
+		t.Skip("IORING_OP_SEND_ZC not supported (requires kernel 6.0+)")
+	}
+
+	// Create a TCP listener and client for testing
+	// Zero-copy doesn't work with AF_UNIX sockets
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen error = %v", err)
+	}
+	defer ln.Close()
+	addr := ln.Addr().(*net.TCPAddr)
+
+	// Accept in background
+	acceptDone := make(chan net.Conn, 1)
+	go func() {
+		conn, _ := ln.Accept()
+		acceptDone <- conn
+	}()
+
+	// Connect client
+	clientConn, err := net.Dial("tcp", addr.String())
+	if err != nil {
+		t.Fatalf("Dial error = %v", err)
+	}
+	defer clientConn.Close()
+
+	serverConn := <-acceptDone
+	if serverConn == nil {
+		t.Fatal("Accept failed")
+	}
+	defer serverConn.Close()
+
+	// Get raw fd from client connection
+	clientFile, err := clientConn.(*net.TCPConn).File()
+	if err != nil {
+		t.Fatalf("File() error = %v", err)
+	}
+	clientFd := int(clientFile.Fd())
+
+	// Send data using zero-copy
+	sendData := []byte("Hello from zero-copy send!")
+	err = ring.PrepSendZC(clientFd, sendData, 0, 1)
+	if err != nil {
+		t.Fatalf("PrepSendZC error = %v", err)
+	}
+
+	_, err = ring.Submit()
+	if err != nil {
+		t.Fatalf("Submit error = %v", err)
+	}
+
+	// Should receive two CQEs: completion and notification
+	seenCompletion := false
+	seenNotification := false
+
+	for i := 0; i < 2; i++ {
+		userData, res, flags, err := ring.WaitCQE()
+		if err != nil {
+			t.Fatalf("WaitCQE error = %v", err)
+		}
+		ring.SeenCQE()
+
+		if userData != 1 {
+			t.Errorf("unexpected userData = %d", userData)
+			continue
+		}
+
+		if flags&0x8 != 0 { // IORING_CQE_F_NOTIF = 0x8
+			// Notification CQE - buffer can be reused
+			seenNotification = true
+			t.Logf("Got notification CQE: res=%d flags=0x%x", res, flags)
+		} else {
+			// Completion CQE - bytes sent
+			seenCompletion = true
+			// Check for EOPNOTSUPP (zero-copy may not be supported for this socket type)
+			if res == -95 {
+				t.Skip("Zero-copy send not supported for this socket type")
+			}
+			if res < 0 {
+				t.Errorf("send_zc error: %v", syscall.Errno(-res))
+			} else if res != int32(len(sendData)) {
+				t.Errorf("send_zc res = %d, want %d", res, len(sendData))
+			}
+			t.Logf("Got completion CQE: res=%d flags=0x%x", res, flags)
+		}
+	}
+
+	if !seenCompletion {
+		t.Error("did not see completion CQE")
+	}
+	if !seenNotification {
+		t.Error("did not see notification CQE")
+	}
+
+	clientFile.Close() // Close duplicate fd
+
+	// Verify data was sent by receiving it
+	recvBuf := make([]byte, 64)
+	serverConn.SetReadDeadline(time.Now().Add(time.Second))
+	n, err := serverConn.Read(recvBuf)
+	if err != nil {
+		t.Fatalf("Read error = %v", err)
+	}
+	if string(recvBuf[:n]) != string(sendData) {
+		t.Errorf("received data = %q, want %q", string(recvBuf[:n]), string(sendData))
+	}
+}
+
+func TestProvideBuffers(t *testing.T) {
+	skipIfNoIOURing(t)
+
+	ring, err := New(64)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer ring.Close()
+
+	// Check if PROVIDE_BUFFERS is supported (5.7+ kernel)
+	probe, err := ring.Probe()
+	if err != nil {
+		t.Fatalf("Probe() error = %v", err)
+	}
+	// IORING_OP_PROVIDE_BUFFERS = 31
+	if !probe.SupportsOp(31) {
+		t.Skip("IORING_OP_PROVIDE_BUFFERS not supported")
+	}
+
+	// Create a contiguous buffer region: 4 buffers of 256 bytes each
+	const numBufs = 4
+	const bufSize = 256
+	bufRegion := make([]byte, numBufs*bufSize)
+
+	// Provide buffers to group 1
+	err = ring.PrepProvideBuffers(unsafe.Pointer(&bufRegion[0]), numBufs, bufSize, 1, 0, 1)
+	if err != nil {
+		t.Fatalf("PrepProvideBuffers error = %v", err)
+	}
+
+	_, err = ring.Submit()
+	if err != nil {
+		t.Fatalf("Submit error = %v", err)
+	}
+
+	userData, res, _, err := ring.WaitCQE()
+	if err != nil {
+		t.Fatalf("WaitCQE error = %v", err)
+	}
+	ring.SeenCQE()
+
+	if userData != 1 {
+		t.Errorf("provide_buffers userData = %d, want 1", userData)
+	}
+	if res != 0 {
+		t.Errorf("provide_buffers res = %d, want 0 (errno: %v)", res, syscall.Errno(-res))
+	}
+
+	// Remove the buffers
+	err = ring.PrepRemoveBuffers(numBufs, 1, 2)
+	if err != nil {
+		t.Fatalf("PrepRemoveBuffers error = %v", err)
+	}
+
+	_, err = ring.Submit()
+	if err != nil {
+		t.Fatalf("Submit error = %v", err)
+	}
+
+	userData, res, _, err = ring.WaitCQE()
+	if err != nil {
+		t.Fatalf("WaitCQE error = %v", err)
+	}
+	ring.SeenCQE()
+
+	if userData != 2 {
+		t.Errorf("remove_buffers userData = %d, want 2", userData)
+	}
+	// Result should be number of buffers removed
+	if res != numBufs {
+		t.Errorf("remove_buffers res = %d, want %d (errno: %v)", res, numBufs, syscall.Errno(-res))
+	}
+
+	t.Logf("Provided %d buffers of %d bytes, then removed them", numBufs, bufSize)
+}
+
+func TestSQPoll(t *testing.T) {
+	skipIfNoIOURing(t)
+
+	// SQPOLL requires CAP_SYS_NICE or root on older kernels
+	ring, err := New(64, WithSQPoll(), WithSQPollIdle(1000))
+	if err != nil {
+		if err == syscall.EPERM {
+			t.Skip("SQPOLL requires elevated privileges")
+		}
+		t.Fatalf("New() error = %v", err)
+	}
+	defer ring.Close()
+
+	// Submit NOPs in batches
+	const numNops = 100
+	const batchSize = 32
+	completed := 0
+
+	for i := 0; i < numNops; i += batchSize {
+		// Submit a batch
+		count := batchSize
+		if i+count > numNops {
+			count = numNops - i
+		}
+
+		for j := 0; j < count; j++ {
+			err := ring.PrepNop(uint64(i + j + 1))
+			if err != nil {
+				t.Fatalf("PrepNop(%d) error = %v", i+j, err)
+			}
+		}
+
+		// Submit - with SQPOLL this may skip the syscall
+		_, err = ring.Submit()
+		if err != nil {
+			t.Fatalf("Submit error = %v", err)
+		}
+
+		// Wait for and consume completions
+		for j := 0; j < count; j++ {
+			_, _, _, err := ring.WaitCQE()
+			if err != nil {
+				t.Fatalf("WaitCQE error = %v", err)
+			}
+			ring.SeenCQE()
+			completed++
+		}
+	}
+
+	if completed != numNops {
+		t.Errorf("completed %d, want %d", completed, numNops)
+	}
+	t.Logf("SQPOLL: Successfully completed %d operations", completed)
+}
+
+func TestBindListen(t *testing.T) {
+	skipIfNoIOURing(t)
+
+	ring, err := New(64)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer ring.Close()
+
+	// Check if BIND and LISTEN are supported (6.11+ kernel)
+	probe, err := ring.Probe()
+	if err != nil {
+		t.Fatalf("Probe() error = %v", err)
+	}
+
+	// IORING_OP_BIND = 57, IORING_OP_LISTEN = 58
+	if !probe.SupportsOp(57) {
+		t.Skip("IORING_OP_BIND not supported (requires kernel 6.11+)")
+	}
+	if !probe.SupportsOp(58) {
+		t.Skip("IORING_OP_LISTEN not supported (requires kernel 6.11+)")
+	}
+
+	// Create a TCP socket
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatalf("Socket error = %v", err)
+	}
+	defer syscall.Close(fd)
+
+	// Set SO_REUSEADDR
+	syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+
+	// Prepare sockaddr for binding to localhost:0 (ephemeral port)
+	addr := syscall.RawSockaddrInet4{
+		Family: syscall.AF_INET,
+		Port:   0, // Let kernel choose port
+		Addr:   [4]byte{127, 0, 0, 1},
+	}
+
+	// Bind using io_uring
+	err = ring.PrepBind(fd, unsafe.Pointer(&addr), uint32(unsafe.Sizeof(addr)), 1)
+	if err != nil {
+		t.Fatalf("PrepBind error = %v", err)
+	}
+
+	_, err = ring.Submit()
+	if err != nil {
+		t.Fatalf("Submit error = %v", err)
+	}
+
+	userData, res, _, err := ring.WaitCQE()
+	if err != nil {
+		t.Fatalf("WaitCQE error = %v", err)
+	}
+	ring.SeenCQE()
+
+	if userData != 1 {
+		t.Errorf("bind userData = %d, want 1", userData)
+	}
+	if res != 0 {
+		t.Errorf("bind res = %d, want 0 (errno: %v)", res, syscall.Errno(-res))
+	}
+
+	// Listen using io_uring
+	err = ring.PrepListen(fd, 128, 2)
+	if err != nil {
+		t.Fatalf("PrepListen error = %v", err)
+	}
+
+	_, err = ring.Submit()
+	if err != nil {
+		t.Fatalf("Submit error = %v", err)
+	}
+
+	userData, res, _, err = ring.WaitCQE()
+	if err != nil {
+		t.Fatalf("WaitCQE error = %v", err)
+	}
+	ring.SeenCQE()
+
+	if userData != 2 {
+		t.Errorf("listen userData = %d, want 2", userData)
+	}
+	if res != 0 {
+		t.Errorf("listen res = %d, want 0 (errno: %v)", res, syscall.Errno(-res))
+	}
+
+	// Verify the socket is now listening by checking getsockname
+	var sa syscall.RawSockaddrInet4
+	saLen := uint32(unsafe.Sizeof(sa))
+	_, _, errno := syscall.Syscall(syscall.SYS_GETSOCKNAME, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(unsafe.Pointer(&saLen)))
+	if errno != 0 {
+		t.Fatalf("getsockname error = %v", errno)
+	}
+
+	// Port should now be assigned
+	port := (uint16(sa.Port) >> 8) | (uint16(sa.Port) << 8) // ntohs
+	if port == 0 {
+		t.Error("expected port to be assigned after bind")
+	}
+	t.Logf("Bound to port %d", port)
 }

@@ -1,9 +1,9 @@
 # go-iouring Implementation Roadmap
 
-## Current Status: Phase 2 Complete
+## Current Status: Phase 3 In Progress
 
-Phases 0-2 complete. Core I/O and Network I/O operations working with zero allocations.
-All 21 tests passing.
+Phases 0-3 mostly complete. Core I/O, Network I/O, SQPOLL, zero-copy send, and linked operations working.
+All 26 tests passing (TestBindListen skips on kernels < 6.11, TestSendZC requires 6.0+).
 
 ### Benchmark Results (i7-8700K)
 | Operation | ns/op | allocs |
@@ -85,8 +85,8 @@ All 21 tests passing.
 
 ### New Socket Lifecycle (5.19+/6.11+)
 - [x] PrepSocket (create socket async)
-- [ ] PrepBind (6.11+)
-- [ ] PrepListen (6.11+)
+- [x] PrepBind (6.11+)
+- [x] PrepListen (6.11+)
 
 ### Polling
 - [x] PrepPollAdd (with multishot)
@@ -98,34 +98,34 @@ All 21 tests passing.
 - [x] Poll tests pass
 - [ ] Echo server handles 100k+ conn/sec
 - [ ] Multishot accept works without leaks
-- [ ] Connect with timeout works
+- [x] Connect with timeout works
 
 ---
 
 ## Phase 3: Advanced Features
 
 ### SQPOLL Mode
-- [ ] Setup with IORING_SETUP_SQPOLL
-- [ ] SQ_AFF CPU pinning
-- [ ] Wakeup handling (IORING_SQ_NEED_WAKEUP)
-- [ ] Idle timeout configuration
+- [x] Setup with IORING_SETUP_SQPOLL (WithSQPoll option)
+- [x] SQ_AFF CPU pinning (WithSQPollCPU option)
+- [x] Wakeup handling (IORING_SQ_NEED_WAKEUP)
+- [x] Idle timeout configuration (WithSQPollIdle option)
 
 ### Provided Buffers
-- [ ] PrepProvideBuffers / PrepRemoveBuffers
+- [x] PrepProvideBuffers / PrepRemoveBuffers
 - [ ] Buffer ring setup (IORING_REGISTER_PBUF_RING, 5.19+)
-- [ ] Automatic buffer selection in recv
+- [x] Automatic buffer selection in recv (PrepRecvMultishot with buf_group)
 
 ### Zero-Copy Networking
-- [ ] PrepSendZC (6.0+)
-- [ ] PrepSendmsgZC (6.1+)
-- [ ] Handle notification CQE (IORING_CQE_F_NOTIF)
-- [ ] Buffer lifetime management
+- [x] PrepSendZC (6.0+)
+- [x] PrepSendmsgZC (6.1+)
+- [x] Handle notification CQE (IORING_CQE_F_NOTIF)
+- [ ] Buffer lifetime management (user responsibility)
 
 ### Linked Operations
 - [x] IOSQE_IO_LINK flag support (SetSQELink)
-- [x] SetSQEFlags / SetSQEAsync helpers
-- [ ] IOSQE_IO_HARDLINK flag support
-- [ ] Chain error propagation
+- [x] SetSQEFlags / SetSQEAsync / SetSQEDrain helpers
+- [x] IOSQE_IO_HARDLINK flag support (SetSQEHardlink)
+- [x] Chain error propagation (handled by kernel, exposed via CQE)
 
 ### Validation
 - [ ] SQPOLL reduces syscalls >90%

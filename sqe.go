@@ -683,11 +683,184 @@ func (r *Ring) SetSQEFlags(flags uint8) {
 }
 
 // SetSQELink links the most recently prepared SQE to the next one.
+// The next SQE will not start until this one completes.
+// If this SQE fails, the chain is broken and subsequent SQEs are cancelled.
 func (r *Ring) SetSQELink() {
 	r.SetSQEFlags(sys.IOSQE_IO_LINK)
+}
+
+// SetSQEHardlink links the most recently prepared SQE to the next one (hard link).
+// Unlike regular links, the chain continues even if this SQE fails.
+// The next SQE still waits for this one to complete, but errors don't break the chain.
+func (r *Ring) SetSQEHardlink() {
+	r.SetSQEFlags(sys.IOSQE_IO_HARDLINK)
 }
 
 // SetSQEAsync forces async execution for the most recently prepared SQE.
 func (r *Ring) SetSQEAsync() {
 	r.SetSQEFlags(sys.IOSQE_ASYNC)
+}
+
+// SetSQEDrain ensures this SQE runs after all previously submitted SQEs complete.
+func (r *Ring) SetSQEDrain() {
+	r.SetSQEFlags(sys.IOSQE_IO_DRAIN)
+}
+
+// PrepBind prepares an async bind operation (6.11+).
+// Binds the socket fd to the address specified by addr.
+func (r *Ring) PrepBind(fd int, addr unsafe.Pointer, addrLen uint32, userData uint64) error {
+	r.sqLock.Lock()
+	sqe := r.getSQE()
+	if sqe == nil {
+		r.sqLock.Unlock()
+		return ErrSQFull
+	}
+
+	sqe.Opcode = uint8(sys.IORING_OP_BIND)
+	sqe.Fd = int32(fd)
+	sqe.Addr = uint64(uintptr(addr))
+	sqe.Off = uint64(addrLen)
+	sqe.UserData = userData
+
+	r.sqLock.Unlock()
+	return nil
+}
+
+// PrepListen prepares an async listen operation (6.11+).
+// Marks the socket as a passive socket to accept connections.
+// backlog specifies the maximum pending connections queue length.
+func (r *Ring) PrepListen(fd int, backlog int, userData uint64) error {
+	r.sqLock.Lock()
+	sqe := r.getSQE()
+	if sqe == nil {
+		r.sqLock.Unlock()
+		return ErrSQFull
+	}
+
+	sqe.Opcode = uint8(sys.IORING_OP_LISTEN)
+	sqe.Fd = int32(fd)
+	sqe.Len = uint32(backlog)
+	sqe.UserData = userData
+
+	r.sqLock.Unlock()
+	return nil
+}
+
+// PrepProvideBuffers registers buffers for automatic buffer selection (5.7+).
+// buffers is a contiguous memory region containing count buffers of bufSize each.
+// bgid is the buffer group ID, bid is the starting buffer ID.
+// After registration, recv operations with IOSQE_BUFFER_SELECT will pick buffers from this group.
+func (r *Ring) PrepProvideBuffers(buffers unsafe.Pointer, count int, bufSize int, bgid uint16, bid int, userData uint64) error {
+	r.sqLock.Lock()
+	sqe := r.getSQE()
+	if sqe == nil {
+		r.sqLock.Unlock()
+		return ErrSQFull
+	}
+
+	sqe.Opcode = uint8(sys.IORING_OP_PROVIDE_BUFFERS)
+	sqe.Fd = int32(count)
+	sqe.Addr = uint64(uintptr(buffers))
+	sqe.Len = uint32(bufSize)
+	sqe.SetBufGroup(bgid)
+	sqe.Off = uint64(bid)
+	sqe.UserData = userData
+
+	r.sqLock.Unlock()
+	return nil
+}
+
+// PrepRemoveBuffers removes previously provided buffers from a buffer group (5.7+).
+// count is the number of buffers to remove, bgid is the buffer group ID.
+func (r *Ring) PrepRemoveBuffers(count int, bgid uint16, userData uint64) error {
+	r.sqLock.Lock()
+	sqe := r.getSQE()
+	if sqe == nil {
+		r.sqLock.Unlock()
+		return ErrSQFull
+	}
+
+	sqe.Opcode = uint8(sys.IORING_OP_REMOVE_BUFFERS)
+	sqe.Fd = int32(count)
+	sqe.SetBufGroup(bgid)
+	sqe.UserData = userData
+
+	r.sqLock.Unlock()
+	return nil
+}
+
+// PrepSendZC prepares a zero-copy send operation (6.0+).
+// This produces TWO CQEs: the completion and a notification (with IORING_CQE_F_NOTIF)
+// indicating when the buffer can be safely reused.
+// flags are MSG_* flags for send.
+func (r *Ring) PrepSendZC(fd int, buf []byte, flags int, userData uint64) error {
+	if len(buf) == 0 {
+		return nil
+	}
+
+	r.sqLock.Lock()
+	sqe := r.getSQE()
+	if sqe == nil {
+		r.sqLock.Unlock()
+		return ErrSQFull
+	}
+
+	sqe.Opcode = uint8(sys.IORING_OP_SEND_ZC)
+	sqe.Fd = int32(fd)
+	sqe.Addr = uint64(uintptr(unsafe.Pointer(&buf[0])))
+	sqe.Len = uint32(len(buf))
+	sqe.OpFlags = uint32(flags)
+	sqe.UserData = userData
+
+	r.sqLock.Unlock()
+	return nil
+}
+
+// PrepSendZCTo prepares a zero-copy send to a specific address (6.0+).
+// Used for sendto semantics with UDP or unconnected sockets.
+func (r *Ring) PrepSendZCTo(fd int, buf []byte, flags int, addr unsafe.Pointer, addrLen uint32, userData uint64) error {
+	if len(buf) == 0 {
+		return nil
+	}
+
+	r.sqLock.Lock()
+	sqe := r.getSQE()
+	if sqe == nil {
+		r.sqLock.Unlock()
+		return ErrSQFull
+	}
+
+	sqe.Opcode = uint8(sys.IORING_OP_SEND_ZC)
+	sqe.Fd = int32(fd)
+	sqe.Addr = uint64(uintptr(unsafe.Pointer(&buf[0])))
+	sqe.Len = uint32(len(buf))
+	sqe.OpFlags = uint32(flags)
+	sqe.Off = uint64(uintptr(addr))   // addr2 for destination
+	sqe.Addr3 = uint64(addrLen)       // addr_len
+	sqe.UserData = userData
+
+	r.sqLock.Unlock()
+	return nil
+}
+
+// PrepSendmsgZC prepares a zero-copy sendmsg operation (6.1+).
+// msg must remain valid until the notification CQE is received.
+// This produces TWO CQEs like PrepSendZC.
+func (r *Ring) PrepSendmsgZC(fd int, msg *syscall.Msghdr, flags int, userData uint64) error {
+	r.sqLock.Lock()
+	sqe := r.getSQE()
+	if sqe == nil {
+		r.sqLock.Unlock()
+		return ErrSQFull
+	}
+
+	sqe.Opcode = uint8(sys.IORING_OP_SENDMSG_ZC)
+	sqe.Fd = int32(fd)
+	sqe.Addr = uint64(uintptr(unsafe.Pointer(msg)))
+	sqe.Len = 1
+	sqe.OpFlags = uint32(flags)
+	sqe.UserData = userData
+
+	r.sqLock.Unlock()
+	return nil
 }
